@@ -306,6 +306,25 @@
       to { height: 16px; }
     }
 
+    /* Language label */
+    .lang-label {
+      position: fixed;
+      bottom: 80px;
+      right: 12px;
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(8px);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      color: #5a8a5a;
+      border: 1px solid rgba(160, 200, 140, 0.3);
+      opacity: 0;
+      transition: opacity 0.5s ease;
+      z-index: 20;
+      white-space: nowrap;
+      font-family: 'Lora', Georgia, serif;
+    }
+
     /* Responsive */
     @media (max-width: 480px) {
       .container { padding: 40px 20px 60px; }
@@ -348,6 +367,8 @@
     <p class="names">Tanya, Anya, Anton & Yana ❤️</p>
   </div>
 </div>
+
+<span class="lang-label" id="langLabel"></span>
 
 <!-- Music toggle -->
 <button class="music-toggle muted" id="musicToggle" onclick="toggleMusic()" title="Toggle music">
@@ -460,36 +481,74 @@
     setTimeout(() => container.remove(), 5000);
   }
 
-  // ── Music (soft piano via Web Audio API) ──
-  let audioCtx, musicPlaying = false, gainNode;
+  // ── Music (Happy Birthday in multiple languages) ──
+  let audioCtx, musicPlaying = false, gainNode, nextLangTimeout = null, langIndex = 0;
 
-  function createSoftMusic() {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    gainNode = audioCtx.createGain();
-    gainNode.gain.value = 0.08;
-    gainNode.connect(audioCtx.destination);
+  const languages = [
+    { name: 'English', transpose: 0, tempo: 0.38 },
+    { name: 'Português', transpose: 2, tempo: 0.36 },
+    { name: 'Español', transpose: -3, tempo: 0.4 },
+    { name: 'Français', transpose: 5, tempo: 0.35 },
+    { name: 'Deutsch', transpose: -1, tempo: 0.38 },
+    { name: 'Italiano', transpose: 4, tempo: 0.37 },
+    { name: 'Українська', transpose: -2, tempo: 0.36 },
+    { name: '日本語', transpose: 7, tempo: 0.34 },
+  ];
 
-    const notes = [261.6, 329.6, 392.0, 523.3, 392.0, 329.6, 293.7, 349.2, 440.0, 523.3, 440.0, 349.2];
-    let time = audioCtx.currentTime;
+  // Melody: [semitones from C4, duration in beats]
+  const melody = [
+    [0,0.75],[0,0.25],[2,1],[0,1],[5,1],[4,2],
+    [0,0.75],[0,0.25],[2,1],[0,1],[7,1],[5,2],
+    [0,0.75],[0,0.25],[12,1],[9,1],[5,1],[4,1],[2,2],
+    [10,0.75],[10,0.25],[9,1],[5,1],[7,1],[5,2],
+  ];
 
-    function playSequence() {
-      notes.forEach((freq, i) => {
-        const osc = audioCtx.createOscillator();
-        const env = audioCtx.createGain();
-        osc.type = 'sine';
-        osc.frequency.value = freq;
-        env.gain.setValueAtTime(0, time + i * 0.7);
-        env.gain.linearRampToValueAtTime(0.3, time + i * 0.7 + 0.1);
-        env.gain.exponentialRampToValueAtTime(0.001, time + i * 0.7 + 0.65);
-        osc.connect(env);
-        env.connect(gainNode);
-        osc.start(time + i * 0.7);
-        osc.stop(time + i * 0.7 + 0.7);
-      });
-      time += notes.length * 0.7 + 0.5;
-      if (musicPlaying) setTimeout(playSequence, notes.length * 700 + 500);
-    }
-    playSequence();
+  function playHappyBirthday(lang) {
+    if (!musicPlaying) return;
+    document.getElementById('langLabel').textContent = lang.name;
+    document.getElementById('langLabel').style.opacity = '1';
+
+    let time = audioCtx.currentTime + 0.1;
+    const baseFreq = 261.63;
+
+    melody.forEach(([semi, beats]) => {
+      const freq = baseFreq * Math.pow(2, (semi + lang.transpose) / 12);
+      const dur = beats * lang.tempo;
+
+      const osc = audioCtx.createOscillator();
+      const env = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      env.gain.setValueAtTime(0, time);
+      env.gain.linearRampToValueAtTime(0.25, time + 0.05);
+      env.gain.exponentialRampToValueAtTime(0.001, time + dur - 0.02);
+      osc.connect(env);
+      env.connect(gainNode);
+      osc.start(time);
+      osc.stop(time + dur);
+
+      // Soft octave harmonic
+      const osc2 = audioCtx.createOscillator();
+      const env2 = audioCtx.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.value = freq * 2;
+      env2.gain.setValueAtTime(0, time);
+      env2.gain.linearRampToValueAtTime(0.06, time + 0.05);
+      env2.gain.exponentialRampToValueAtTime(0.001, time + dur - 0.02);
+      osc2.connect(env2);
+      env2.connect(gainNode);
+      osc2.start(time);
+      osc2.stop(time + dur);
+
+      time += dur;
+    });
+
+    const totalDur = melody.reduce((s, [, b]) => s + b * lang.tempo, 0);
+    nextLangTimeout = setTimeout(() => {
+      if (!musicPlaying) return;
+      langIndex = (langIndex + 1) % languages.length;
+      playHappyBirthday(languages[langIndex]);
+    }, (totalDur + 1.5) * 1000);
   }
 
   function toggleMusic() {
@@ -497,11 +556,18 @@
     if (!musicPlaying) {
       musicPlaying = true;
       btn.classList.remove('muted');
-      createSoftMusic();
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      gainNode = audioCtx.createGain();
+      gainNode.gain.value = 0.15;
+      gainNode.connect(audioCtx.destination);
+      langIndex = 0;
+      playHappyBirthday(languages[0]);
     } else {
       musicPlaying = false;
       btn.classList.add('muted');
+      if (nextLangTimeout) clearTimeout(nextLangTimeout);
       if (audioCtx) audioCtx.close();
+      document.getElementById('langLabel').style.opacity = '0';
     }
   }
 </script>
